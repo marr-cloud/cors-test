@@ -204,6 +204,7 @@ function renderPage(
   method: string,
   result: TestResult | null,
   requestUrl: string,
+  nonce: string,
 ): string {
   const shareUrl = url ? requestUrl : "";
 
@@ -589,7 +590,7 @@ function renderPage(
           </svg>
           RUN TEST
         </button>
-        ${shareUrl ? `<button class="btn" type="button" onclick="navigator.clipboard.writeText('${encodeHTML(shareUrl)}').then(() => { this.textContent = '✓ Copied!'; setTimeout(() => this.textContent = '↗ Copy link', 2000) })">↗ Copy link</button>` : ""}
+        ${shareUrl ? `<button class="btn" type="button" id="copy-btn" data-url="${encodeHTML(shareUrl)}">↗ Copy link</button>` : ""}
         </div>
     </form>
   </div>
@@ -605,6 +606,16 @@ function renderPage(
   </footer>
 
 </div>
+${shareUrl ? `<script nonce="${nonce}">
+document.getElementById('copy-btn').addEventListener('click', function() {
+  var btn = this;
+  navigator.clipboard.writeText(btn.dataset.url)
+    .then(function() {
+      btn.textContent = '✓ Copied!';
+      setTimeout(function() { btn.textContent = '↗ Copy link'; }, 2000);
+    });
+});
+</script>` : ""}
 </body>
 </html>`;
 }
@@ -627,14 +638,15 @@ export default {
       return new Response("Invalid HTTP method", { status: 400 });
     }
 
+    const nonce = crypto.randomUUID();
     const result = url !== "" ? await fetchHeaders(url, method, origin) : null;
 
-    const body = renderPage(url, origin, method, result, href);
+    const body = renderPage(url, origin, method, result, href, nonce);
 
     return new Response(body, {
       headers: {
         "Content-Type": "text/html;charset=UTF-8",
-        "Content-Security-Policy": "default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'unsafe-inline'; img-src 'self' data:",
+        "Content-Security-Policy": `default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'nonce-${nonce}'; img-src 'self' data:`,
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "Referrer-Policy": "no-referrer",
