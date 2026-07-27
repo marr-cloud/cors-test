@@ -621,9 +621,24 @@ document.getElementById('copy-btn').addEventListener('click', function() {
 </html>`;
 }
 
+const SECURITY_TXT = `Contact: https://github.com/marr-cloud/cors-test/issues
+Expires: 2027-07-27T00:00:00.000Z
+Preferred-Languages: en, es
+Canonical: https://cors.infraforge.cc/.well-known/security.txt
+`;
+
 export default {
   async fetch(request: Request): Promise<Response> {
-    const { searchParams, href } = new URL(request.url);
+    const { pathname, searchParams, href } = new URL(request.url);
+
+    if (pathname === "/.well-known/security.txt") {
+      return new Response(SECURITY_TXT, {
+        headers: {
+          "Content-Type": "text/plain;charset=UTF-8",
+          "Cache-Control": "public, max-age=86400",
+        },
+      });
+    }
 
     const url = searchParams.get("url") ?? "";
     const origin = searchParams.get("origin") ?? "https://cors.infraforge.cc";
