@@ -28,7 +28,8 @@ function encodeHTML(s: string): string {
     .replace(/&/g, "&amp;")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function isValidUrl(str: string): boolean {
@@ -223,7 +224,7 @@ function renderPage(
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
-  <style>
+  <style nonce="${nonce}">
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -600,8 +601,8 @@ function renderPage(
   <footer>
     <span>Built with ♥ on Cloudflare Workers</span>
     <span>
-      <a href="https://github.com/meitrix8208/cors-test" target="_blank">GitHub</a>
-      · <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS" target="_blank">MDN CORS docs</a>
+      <a href="https://github.com/meitrix8208/cors-test" target="_blank" rel="noopener noreferrer">GitHub</a>
+      · <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS" target="_blank" rel="noopener noreferrer">MDN CORS docs</a>
     </span>
   </footer>
 
@@ -643,14 +644,33 @@ export default {
 
     const body = renderPage(url, origin, method, result, href, nonce);
 
+    const csp = [
+      `default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com`,
+      `script-src 'nonce-${nonce}'`,
+      `style-src 'nonce-${nonce}' https://fonts.googleapis.com`,
+      `font-src https://fonts.gstatic.com`,
+      `img-src 'self' data:`,
+      `object-src 'none'`,
+      `base-uri 'none'`,
+      `form-action 'self'`,
+      `frame-ancestors 'none'`,
+      `upgrade-insecure-requests`,
+    ].join("; ");
+
     return new Response(body, {
       headers: {
         "Content-Type": "text/html;charset=UTF-8",
-        "Content-Security-Policy": `default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; script-src 'nonce-${nonce}'; img-src 'self' data:`,
+        "Content-Security-Policy": csp,
         "X-Content-Type-Options": "nosniff",
         "X-Frame-Options": "DENY",
         "Referrer-Policy": "no-referrer",
         "Cache-Control": "no-store",
+        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+        "Cross-Origin-Opener-Policy": "same-origin",
+        "Cross-Origin-Resource-Policy": "same-origin",
+        "Permissions-Policy":
+          "geolocation=(), camera=(), microphone=(), payment=()",
+        "X-Permitted-Cross-Domain-Policies": "none",
       },
     });
   },
