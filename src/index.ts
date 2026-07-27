@@ -601,7 +601,7 @@ function renderPage(
   <footer>
     <span>Built with ♥ on Cloudflare Workers</span>
     <span>
-      <a href="https://github.com/meitrix8208/cors-test" target="_blank" rel="noopener noreferrer">GitHub</a>
+      <a href="https://github.com/marr-cloud/cors-test" target="_blank" rel="noopener noreferrer">GitHub</a>
       · <a href="https://developer.mozilla.org/en-US/docs/Web/HTTP/Guides/CORS" target="_blank" rel="noopener noreferrer">MDN CORS docs</a>
     </span>
   </footer>
