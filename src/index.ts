@@ -624,7 +624,7 @@ document.getElementById('copy-btn').addEventListener('click', function() {
 const SECURITY_TXT = `Contact: https://github.com/marr-cloud/cors-test/issues
 Expires: 2027-07-27T00:00:00.000Z
 Preferred-Languages: en, es
-Canonical: https://cors.infraforge.cc/.well-known/security.txt
+Canonical: https://cors.maurrod.dev/.well-known/security.txt
 `;
 
 export default {
@@ -641,7 +641,7 @@ export default {
     }
 
     const url = searchParams.get("url") ?? "";
-    const origin = searchParams.get("origin") ?? "https://cors.infraforge.cc";
+    const origin = searchParams.get("origin") ?? "https://cors.maurrod.dev";
     const method = (searchParams.get("method") ?? "GET").toUpperCase();
 
     if (url !== "" && !isValidUrl(url)) {
