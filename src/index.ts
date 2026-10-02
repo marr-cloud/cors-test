@@ -32,6 +32,9 @@ function encodeHTML(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+// Tests run on their own path so a path-only WAF rate limiting rule (all the
+// Free plan allows) can target them without touching other hosts in the zone.
+const TEST_PATH = "/inspect";
 const MAX_URL_LENGTH = 2048;
 const FETCH_TIMEOUT_MS = 10_000;
 
@@ -582,7 +585,7 @@ function renderPage(
   </header>
 
   <div class="form-card">
-    <form method="GET" action="/">
+    <form method="GET" action="${TEST_PATH}">
       <div class="form-grid">
         <div class="full">
           <label for="url">Target URL</label>
@@ -706,7 +709,9 @@ function textResponse(
 
 export default {
   async fetch(request: Request, env: CloudflareBindings): Promise<Response> {
-    const { pathname, searchParams, href, hostname } = new URL(request.url);
+    const { pathname, search, searchParams, href, hostname } = new URL(
+      request.url,
+    );
 
     if (request.method !== "GET" && request.method !== "HEAD") {
       return textResponse("Method not allowed", 405, { Allow: "GET, HEAD" });
@@ -718,11 +723,20 @@ export default {
       });
     }
 
-    if (pathname !== "/") {
+    if (pathname !== "/" && pathname !== TEST_PATH) {
       return textResponse("Not found", 404);
     }
 
     const url = searchParams.get("url") ?? "";
+
+    // Keep links shared before tests moved to TEST_PATH working.
+    if (pathname === "/" && url !== "") {
+      return textResponse("", 301, { Location: `${TEST_PATH}${search}` });
+    }
+    if (pathname === TEST_PATH && url === "") {
+      return textResponse("", 302, { Location: "/" });
+    }
+
     const origin = searchParams.get("origin") ?? "https://cors.maurrod.dev";
     const method = (searchParams.get("method") ?? "GET").toUpperCase();
 

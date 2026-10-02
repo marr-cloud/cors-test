@@ -14,7 +14,7 @@
 - Test any of `GET`, `POST`, `PUT`, `PATCH`, `HEAD`, `OPTIONS` — including preflight-style `OPTIONS` checks.
 - Classifies the result at a glance: **not configured**, **wildcard**, **restricted (match)**, or **restricted (mismatch)**.
 - Full response header table with CORS-relevant headers highlighted.
-- Copyable/shareable link that reproduces the exact test (`?url=&origin=&method=`).
+- Copyable/shareable link that reproduces the exact test (`/inspect?url=&origin=&method=`).
 - Inline "how to fix" guidance when CORS headers are missing.
 
 ## How it works
@@ -41,13 +41,13 @@ Since this Worker fetches arbitrary user-supplied URLs and renders response data
 - Redirects are reported, never followed (`redirect: "manual"`), with a 10 s timeout; the response body is discarded unread.
 - Only `http(s)` URLs up to 2048 chars, no embedded credentials, and never the tool's own hostname.
 - The `Origin` header is normalized to a bare origin, as a browser would send it.
-- Per-IP rate limit (20 tests/minute) via the Workers Rate Limiting binding.
+- Per-IP rate limit: a zone WAF rate limiting rule on the `/inspect` path (hard limit), plus the Workers Rate Limiting binding (20 tests/minute, best-effort) as a second layer.
 
 **Page:**
 
 - Fonts are self-hosted (`public/fonts`, SIL Open Font License) — visiting the page contacts no third party.
 - All user-controlled and target-supplied output is HTML-escaped before rendering.
-- Only `GET`/`HEAD` on `/` and `/robots.txt`; everything else is 404/405.
+- Only `GET`/`HEAD` on `/`, `/inspect` and `/robots.txt`; everything else is 404/405. Legacy `/?url=` links 301 to `/inspect`.
 - `/.well-known/security.txt` and the HSTS header are managed zone-wide in Cloudflare (Security Center / Edge Certificates), shared by every Worker on `maurrod.dev`; the zone HSTS setting overrides the Worker's header, so keep them aligned.
 
 ## Tech stack
