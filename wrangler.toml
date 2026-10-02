@@ -13,8 +13,10 @@ enabled = true
 directory = "./public"
 
 # Each test makes an outbound request on the visitor's behalf; cap it per IP
-# so the tool can't be used as a free request relay.
+# so the tool can't be used as a free request relay. Best-effort only (the
+# binding is permissive and per-location); the hard limit is a zone WAF
+# rate limiting rule on /inspect. namespace_id must be unique per account.
 [[ratelimits]]
 name = "TEST_LIMITER"
-namespace_id = "1001"
+namespace_id = "20261002"
 simple = { limit = 20, period = 60 }
