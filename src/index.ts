@@ -32,10 +32,19 @@ function encodeHTML(s: string): string {
     .replace(/'/g, "&#39;");
 }
 
+const MAX_URL_LENGTH = 2048;
+const FETCH_TIMEOUT_MS = 10_000;
+
 function isValidUrl(str: string): boolean {
+  if (str.length > MAX_URL_LENGTH) return false;
   try {
     const url = new URL(str);
-    return url.protocol === "http:" || url.protocol === "https:";
+    return (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      // Credentials in a shareable URL would end up in history and logs.
+      url.username === "" &&
+      url.password === ""
+    );
   } catch {
     return false;
   }
@@ -47,10 +56,15 @@ async function fetchHeaders(
   origin: string,
 ): Promise<TestResult> {
   try {
+    // Redirects are reported, not followed: CORS headers must be valid on the
+    // URL actually requested, and preflights never follow redirects.
     const response = await fetch(url, {
       method,
       headers: { Origin: origin },
+      redirect: "manual",
+      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
+    await response.body?.cancel();
 
     const headers: Record<string, string> = {};
     response.headers.forEach((value, key) => {
@@ -63,7 +77,12 @@ async function fetchHeaders(
       headers: {},
       status: 0,
       ok: false,
-      error: err instanceof Error ? err.message : "Unknown error",
+      error:
+        err instanceof Error && err.name === "TimeoutError"
+          ? `No response within ${FETCH_TIMEOUT_MS / 1000}s`
+          : err instanceof Error
+            ? err.message
+            : "Unknown error",
     };
   }
 }
@@ -178,6 +197,7 @@ function renderResults(
       ${renderCorsStatus(result.headers, origin)}
 
       <h2 class="mt-6">// response headers <span class="badge">HTTP ${result.status}</span></h2>
+      ${result.status >= 300 && result.status < 400 ? '<p class="legend">Redirect not followed — test the <code>location</code> target separately.</p>' : ""}
       <div class="table-wrap">
         <table class="headers-table">
           <thead>
@@ -221,10 +241,23 @@ function renderPage(
   <meta property="og:description" content="Test any URL for CORS headers. Fast, free, open source.">
   <meta property="twitter:card" content="summary">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2281%22>🌐</text></svg>">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;700;800&display=swap" rel="stylesheet">
+  <link rel="preload" href="/fonts/jetbrains-mono-latin.woff2" as="font" type="font/woff2" crossorigin>
   <style nonce="${nonce}">
+    @font-face {
+      font-family: 'JetBrains Mono';
+      font-style: normal;
+      font-weight: 400 700;
+      font-display: swap;
+      src: url(/fonts/jetbrains-mono-latin.woff2) format('woff2');
+    }
+    @font-face {
+      font-family: 'Syne';
+      font-style: normal;
+      font-weight: 400 800;
+      font-display: swap;
+      src: url(/fonts/syne-latin.woff2) format('woff2');
+    }
+
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
@@ -621,23 +654,72 @@ document.getElementById('copy-btn').addEventListener('click', function() {
 </html>`;
 }
 
-const SECURITY_TXT = `Contact: https://github.com/marr-cloud/cors-test/issues
-Expires: 2027-07-27T00:00:00.000Z
-Preferred-Languages: en, es
-Canonical: https://cors.maurrod.dev/.well-known/security.txt
-`;
+const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "no-referrer",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
+  "Cross-Origin-Opener-Policy": "same-origin",
+  "Cross-Origin-Embedder-Policy": "require-corp",
+  "Cross-Origin-Resource-Policy": "same-origin",
+  "Origin-Agent-Cluster": "?1",
+  "Permissions-Policy": [
+    "accelerometer=()",
+    "autoplay=()",
+    "browsing-topics=()",
+    "camera=()",
+    "display-capture=()",
+    "encrypted-media=()",
+    "fullscreen=()",
+    "geolocation=()",
+    "gyroscope=()",
+    "magnetometer=()",
+    "microphone=()",
+    "midi=()",
+    "payment=()",
+    "picture-in-picture=()",
+    "publickey-credentials-get=()",
+    "screen-wake-lock=()",
+    "serial=()",
+    "usb=()",
+    "xr-spatial-tracking=()",
+  ].join(", "),
+  "X-Permitted-Cross-Domain-Policies": "none",
+};
+
+function textResponse(
+  body: string,
+  status: number,
+  extra: Record<string, string> = {},
+): Response {
+  return new Response(body, {
+    status,
+    headers: {
+      ...SECURITY_HEADERS,
+      "Content-Type": "text/plain;charset=UTF-8",
+      "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
+      "Cache-Control": "no-store",
+      ...extra,
+    },
+  });
+}
 
 export default {
-  async fetch(request: Request): Promise<Response> {
-    const { pathname, searchParams, href } = new URL(request.url);
+  async fetch(request: Request, env: CloudflareBindings): Promise<Response> {
+    const { pathname, searchParams, href, hostname } = new URL(request.url);
 
-    if (pathname === "/.well-known/security.txt") {
-      return new Response(SECURITY_TXT, {
-        headers: {
-          "Content-Type": "text/plain;charset=UTF-8",
-          "Cache-Control": "public, max-age=86400",
-        },
+    if (request.method !== "GET" && request.method !== "HEAD") {
+      return textResponse("Method not allowed", 405, { Allow: "GET, HEAD" });
+    }
+
+    if (pathname === "/robots.txt") {
+      return textResponse("User-agent: *\nAllow: /$\nDisallow: /\n", 200, {
+        "Cache-Control": "public, max-age=86400",
       });
+    }
+
+    if (pathname !== "/") {
+      return textResponse("Not found", 404);
     }
 
     const url = searchParams.get("url") ?? "";
@@ -645,47 +727,59 @@ export default {
     const method = (searchParams.get("method") ?? "GET").toUpperCase();
 
     if (url !== "" && !isValidUrl(url)) {
-      return new Response("Invalid URL", { status: 400 });
+      return textResponse("Invalid URL", 400);
+    }
+    if (url !== "" && new URL(url).hostname === hostname) {
+      return textResponse("Testing this tool against itself is not allowed", 400);
     }
     if (!isValidUrl(origin)) {
-      return new Response("Invalid origin", { status: 400 });
+      return textResponse("Invalid origin", 400);
     }
     if (!VALID_METHODS.includes(method as HttpMethod)) {
-      return new Response("Invalid HTTP method", { status: 400 });
+      return textResponse("Invalid HTTP method", 400);
+    }
+
+    if (url !== "") {
+      const ip = request.headers.get("cf-connecting-ip") ?? "unknown";
+      const { success } = await env.TEST_LIMITER.limit({ key: ip });
+      if (!success) {
+        return textResponse("Too many requests — try again in a minute", 429, {
+          "Retry-After": "60",
+        });
+      }
     }
 
     const nonce = crypto.randomUUID();
-    const result = url !== "" ? await fetchHeaders(url, method, origin) : null;
+    // Browsers send a bare origin (scheme://host[:port]), never a path.
+    const result =
+      url !== ""
+        ? await fetchHeaders(url, method, new URL(origin).origin)
+        : null;
 
     const body = renderPage(url, origin, method, result, href, nonce);
 
     const csp = [
-      `default-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com`,
+      `default-src 'none'`,
       `script-src 'nonce-${nonce}'`,
-      `style-src 'nonce-${nonce}' https://fonts.googleapis.com`,
-      `font-src https://fonts.gstatic.com`,
-      `img-src 'self' data:`,
-      `object-src 'none'`,
+      `style-src 'nonce-${nonce}'`,
+      `font-src 'self'`,
+      `img-src data:`,
       `base-uri 'none'`,
       `form-action 'self'`,
       `frame-ancestors 'none'`,
+      `require-trusted-types-for 'script'`,
+      `trusted-types 'none'`,
       `upgrade-insecure-requests`,
     ].join("; ");
 
     return new Response(body, {
       headers: {
+        ...SECURITY_HEADERS,
         "Content-Type": "text/html;charset=UTF-8",
         "Content-Security-Policy": csp,
-        "X-Content-Type-Options": "nosniff",
-        "X-Frame-Options": "DENY",
-        "Referrer-Policy": "no-referrer",
         "Cache-Control": "no-store",
-        "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-        "Cross-Origin-Opener-Policy": "same-origin",
-        "Cross-Origin-Resource-Policy": "same-origin",
-        "Permissions-Policy":
-          "geolocation=(), camera=(), microphone=(), payment=()",
-        "X-Permitted-Cross-Domain-Policies": "none",
+        // Result pages contain third-party data; keep them out of search indexes.
+        ...(url !== "" ? { "X-Robots-Tag": "noindex, nofollow" } : {}),
       },
     });
   },
