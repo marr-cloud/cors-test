@@ -6,7 +6,7 @@
 
 > Inspect, debug, and fix Cross-Origin Resource Sharing (CORS) headers on any URL — a zero-dependency Cloudflare Worker with no client-side framework.
 
-**Live:** [cors.infraforge.cc](https://cors.infraforge.cc)
+**Live:** [cors.maurrod.dev](https://cors.maurrod.dev)
 
 ## Features
 
@@ -23,22 +23,37 @@ The Worker performs the fetch server-side (not from the visitor's browser), so i
 
 ## Security
 
-Since this Worker fetches arbitrary user-supplied URLs and renders response data back into HTML, it ships with a deliberately strict header set:
+Since this Worker fetches arbitrary user-supplied URLs and renders response data back into HTML, it ships with a deliberately strict setup:
 
-- **CSP** with a per-request nonce for both `script-src` and `style-src` — no `unsafe-inline` anywhere.
-- `object-src 'none'`, `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'none'`, `upgrade-insecure-requests`.
-- `Strict-Transport-Security` (HSTS) and `X-Frame-Options: DENY` (belt-and-suspenders with `frame-ancestors`).
+**Response headers** (on every response, including errors):
+
+- **CSP** with `default-src 'none'` and a per-request nonce for `script-src` and `style-src` — no `unsafe-inline`, no third-party origins.
+- **Trusted Types** enforced (`require-trusted-types-for 'script'; trusted-types 'none'`).
+- `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'none'`, `upgrade-insecure-requests`.
+- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` and `X-Frame-Options: DENY`.
+- Cross-origin isolation: `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: same-origin`, `Origin-Agent-Cluster: ?1`.
+- `Permissions-Policy` denying every powerful feature the page doesn't use.
 - `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Permitted-Cross-Domain-Policies: none`.
-- `Cross-Origin-Opener-Policy` / `Cross-Origin-Resource-Policy: same-origin`.
-- `Permissions-Policy` disabling `geolocation`, `camera`, `microphone`, `payment`.
-- `Cache-Control: no-store` — results are per-request and never cached.
-- All user-controlled output is HTML-escaped before rendering.
+- `Cache-Control: no-store`; result pages also send `X-Robots-Tag: noindex, nofollow`.
+
+**Outbound requests:**
+
+- Redirects are reported, never followed (`redirect: "manual"`), with a 10 s timeout; the response body is discarded unread.
+- Only `http(s)` URLs up to 2048 chars, no embedded credentials, and never the tool's own hostname.
+- The `Origin` header is normalized to a bare origin, as a browser would send it.
+- Per-IP rate limit (20 tests/minute) via the Workers Rate Limiting binding.
+
+**Page:**
+
+- Fonts are self-hosted (`public/fonts`, SIL Open Font License) — visiting the page contacts no third party.
+- All user-controlled and target-supplied output is HTML-escaped before rendering.
+- Only `GET`/`HEAD` on `/`, `/robots.txt` and `/.well-known/security.txt`; everything else is 404/405.
 
 ## Tech stack
 
 | Layer      | Tech                                    |
 | ---------- | ---------------------------------------- |
-| Runtime    | Cloudflare Workers (edge, no bindings)   |
+| Runtime    | Cloudflare Workers + static assets, rate limiting binding |
 | Language   | TypeScript (strict, ESM)                 |
 | Styling    | Vanilla CSS, no build step               |
 | Build/CLI  | Wrangler 4                               |
