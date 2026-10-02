@@ -654,17 +654,11 @@ document.getElementById('copy-btn').addEventListener('click', function() {
 </html>`;
 }
 
-const SECURITY_TXT = `Contact: https://github.com/marr-cloud/cors-test/issues
-Expires: 2027-07-27T00:00:00.000Z
-Preferred-Languages: en, es
-Canonical: https://cors.maurrod.dev/.well-known/security.txt
-`;
-
 const SECURITY_HEADERS: Record<string, string> = {
   "X-Content-Type-Options": "nosniff",
   "X-Frame-Options": "DENY",
   "Referrer-Policy": "no-referrer",
-  "Strict-Transport-Security": "max-age=63072000; includeSubDomains; preload",
+  "Strict-Transport-Security": "max-age=31536000; includeSubDomains; preload",
   "Cross-Origin-Opener-Policy": "same-origin",
   "Cross-Origin-Embedder-Policy": "require-corp",
   "Cross-Origin-Resource-Policy": "same-origin",
@@ -716,12 +710,6 @@ export default {
 
     if (request.method !== "GET" && request.method !== "HEAD") {
       return textResponse("Method not allowed", 405, { Allow: "GET, HEAD" });
-    }
-
-    if (pathname === "/.well-known/security.txt") {
-      return textResponse(SECURITY_TXT, 200, {
-        "Cache-Control": "public, max-age=86400",
-      });
     }
 
     if (pathname === "/robots.txt") {

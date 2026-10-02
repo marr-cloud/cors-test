@@ -30,7 +30,7 @@ Since this Worker fetches arbitrary user-supplied URLs and renders response data
 - **CSP** with `default-src 'none'` and a per-request nonce for `script-src` and `style-src` — no `unsafe-inline`, no third-party origins.
 - **Trusted Types** enforced (`require-trusted-types-for 'script'; trusted-types 'none'`).
 - `base-uri 'none'`, `form-action 'self'`, `frame-ancestors 'none'`, `upgrade-insecure-requests`.
-- `Strict-Transport-Security: max-age=63072000; includeSubDomains; preload` and `X-Frame-Options: DENY`.
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` and `X-Frame-Options: DENY`.
 - Cross-origin isolation: `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: same-origin`, `Origin-Agent-Cluster: ?1`.
 - `Permissions-Policy` denying every powerful feature the page doesn't use.
 - `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Permitted-Cross-Domain-Policies: none`.
@@ -47,7 +47,8 @@ Since this Worker fetches arbitrary user-supplied URLs and renders response data
 
 - Fonts are self-hosted (`public/fonts`, SIL Open Font License) — visiting the page contacts no third party.
 - All user-controlled and target-supplied output is HTML-escaped before rendering.
-- Only `GET`/`HEAD` on `/`, `/robots.txt` and `/.well-known/security.txt`; everything else is 404/405.
+- Only `GET`/`HEAD` on `/` and `/robots.txt`; everything else is 404/405.
+- `/.well-known/security.txt` and the HSTS header are managed zone-wide in Cloudflare (Security Center / Edge Certificates), shared by every Worker on `maurrod.dev`; the zone HSTS setting overrides the Worker's header, so keep them aligned.
 
 ## Tech stack
 
