@@ -269,7 +269,7 @@ function renderPage(
       --border:   #1e2128;
       --border2:  #2a2f3a;
       --text:     #d4d8e2;
-      --muted:    #5a6070;
+      --muted:    #848b9e;
       --accent:   #00e5ff;
       --accent2:  #7b61ff;
       --success:  #00e096;
@@ -584,6 +584,7 @@ function renderPage(
     <p class="tagline">Inspect Cross-Origin Resource Sharing headers</p>
   </header>
 
+  <main>
   <div class="form-card">
     <form method="GET" action="${TEST_PATH}">
       <div class="form-grid">
@@ -633,6 +634,7 @@ function renderPage(
   </div>
 
   ${renderResults(result, url, origin)}
+  </main>
 
   <footer>
     <span>Built with ♥ on Cloudflare Workers</span>
@@ -701,7 +703,7 @@ function textResponse(
       ...SECURITY_HEADERS,
       "Content-Type": "text/plain;charset=UTF-8",
       "Content-Security-Policy": "default-src 'none'; frame-ancestors 'none'",
-      "Cache-Control": "no-store",
+      "Cache-Control": "no-store, no-transform",
       ...extra,
     },
   });
@@ -719,7 +721,7 @@ export default {
 
     if (pathname === "/robots.txt") {
       return textResponse("User-agent: *\nAllow: /$\nDisallow: /\n", 200, {
-        "Cache-Control": "public, max-age=86400",
+        "Cache-Control": "public, max-age=86400, no-transform",
       });
     }
 
@@ -777,6 +779,8 @@ export default {
       `script-src 'nonce-${nonce}'`,
       `style-src 'nonce-${nonce}'`,
       `font-src 'self'`,
+      // Same-origin only; lets audit tools (e.g. Lighthouse) fetch /robots.txt.
+      `connect-src 'self'`,
       `img-src data:`,
       `base-uri 'none'`,
       `form-action 'self'`,
@@ -791,7 +795,9 @@ export default {
         ...SECURITY_HEADERS,
         "Content-Type": "text/html;charset=UTF-8",
         "Content-Security-Policy": csp,
-        "Cache-Control": "no-store",
+        // no-transform stops Cloudflare from injecting its Web Analytics and
+        // JS Detections scripts, which would run third-party code on the page.
+        "Cache-Control": "no-store, no-transform",
         // Result pages contain third-party data; keep them out of search indexes.
         ...(url !== "" ? { "X-Robots-Tag": "noindex, nofollow" } : {}),
       },
