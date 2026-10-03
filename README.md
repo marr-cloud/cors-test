@@ -12,6 +12,7 @@
 
 - Sends a real HTTP request to a target URL with a chosen `Origin` header and inspects the response.
 - Test any of `GET`, `POST`, `PUT`, `PATCH`, `HEAD`, `OPTIONS` — including preflight-style `OPTIONS` checks.
+- `QUERY` ([RFC 10008](https://www.rfc-editor.org/rfc/rfc10008.html)) runs what a browser would: a preflight (`OPTIONS` with `Access-Control-Request-Method: QUERY` and `Access-Control-Request-Headers: content-type`), then the `QUERY` request with a JSON body, and reports whether a browser on the given origin can use it.
 - Classifies the result at a glance: **not configured**, **wildcard**, **restricted (match)**, or **restricted (mismatch)**.
 - Full response header table with CORS-relevant headers highlighted.
 - Copyable/shareable link that reproduces the exact test (`/inspect?url=&origin=&method=`).

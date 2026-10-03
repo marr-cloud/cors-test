@@ -13,6 +13,7 @@ const VALID_METHODS = [
   "PATCH",
   "HEAD",
   "OPTIONS",
+  "QUERY",
 ] as const;
 type HttpMethod = (typeof VALID_METHODS)[number];
 
@@ -21,6 +22,13 @@ interface TestResult {
   status: number;
   ok: boolean;
   error?: string;
+}
+
+// QUERY (RFC 10008) is never CORS-safelisted, so browsers always preflight it.
+// Its mandatory Content-Type (JSON here) isn't safelisted either.
+interface Outcome {
+  result: TestResult;
+  preflight?: TestResult;
 }
 
 function encodeHTML(s: string): string {
@@ -57,13 +65,16 @@ async function fetchHeaders(
   url: string,
   method: string,
   origin: string,
+  extraHeaders: Record<string, string> = {},
+  body?: string,
 ): Promise<TestResult> {
   try {
     // Redirects are reported, not followed: CORS headers must be valid on the
     // URL actually requested, and preflights never follow redirects.
     const response = await fetch(url, {
       method,
-      headers: { Origin: origin },
+      headers: { Origin: origin, ...extraHeaders },
+      body: body ?? null,
       redirect: "manual",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
     });
@@ -104,6 +115,132 @@ function renderHeadersTable(headers: Record<string, string>): string {
       </tr>`;
     })
     .join("\n");
+}
+
+function originAllowed(allowOrigin: string | undefined, origin: string): boolean {
+  return allowOrigin === "*" || allowOrigin === new URL(origin).origin;
+}
+
+function listHas(value: string | undefined, item: string, caseSensitive: boolean): boolean {
+  const items = (value ?? "").split(",").map((v) => v.trim());
+  return caseSensitive
+    ? items.includes(item)
+    : items.some((v) => v.toLowerCase() === item.toLowerCase());
+}
+
+function renderCheck(ok: boolean, text: string): string {
+  return `<li class="${ok ? "check-ok" : "check-fail"}"><span class="check-icon">${ok ? "✓" : "✗"}</span><span>${text}</span></li>`;
+}
+
+function preflightAllowsQuery(pre: TestResult, origin: string): boolean {
+  const h = pre.headers;
+  return (
+    !pre.error &&
+    pre.status >= 200 &&
+    pre.status < 300 &&
+    originAllowed(h["access-control-allow-origin"], origin) &&
+    (listHas(h["access-control-allow-methods"], "QUERY", true) ||
+      listHas(h["access-control-allow-methods"], "*", true)) &&
+    (listHas(h["access-control-allow-headers"], "content-type", false) ||
+      listHas(h["access-control-allow-headers"], "*", true))
+  );
+}
+
+function renderPreflightStatus(pre: TestResult, origin: string): string {
+  const h = pre.headers;
+  const acam = h["access-control-allow-methods"];
+  const acah = h["access-control-allow-headers"];
+  const statusOk = pre.status >= 200 && pre.status < 300;
+  const methodOk = listHas(acam, "QUERY", true) || listHas(acam, "*", true);
+  const methodWrongCase = !methodOk && listHas(acam, "QUERY", false);
+  const headerOk = listHas(acah, "content-type", false) || listHas(acah, "*", true);
+  const allowed = preflightAllowsQuery(pre, origin);
+
+  return `
+    <div class="status-box ${allowed ? "status-success" : "status-error"}">
+      <span class="status-icon">${allowed ? "✓" : "✗"}</span>
+      <div>
+        <strong>PREFLIGHT ${allowed ? "PASSES" : "FAILS"}</strong>
+        <ul class="checks">
+          ${renderCheck(statusOk, `HTTP status is 2xx (got ${pre.status}${pre.status >= 300 && pre.status < 400 ? " — preflights never follow redirects" : ""})`)}
+          ${renderCheck(originAllowed(h["access-control-allow-origin"], origin), "<code>access-control-allow-origin</code> allows this origin")}
+          ${renderCheck(methodOk, `<code>access-control-allow-methods</code> includes <code>QUERY</code>${methodWrongCase ? " — found with different casing; browsers compare it case-sensitively" : ""}`)}
+          ${renderCheck(headerOk, "<code>access-control-allow-headers</code> includes <code>content-type</code>")}
+        </ul>
+      </div>
+    </div>
+    ${
+      allowed
+        ? ""
+        : `<div class="fix-box">
+        <p class="fix-title">// how to fix</p>
+        <p>Answer the <code>OPTIONS</code> preflight with a 2xx and:</p>
+        <pre>Access-Control-Allow-Origin: ${encodeHTML(new URL(origin).origin)}
+Access-Control-Allow-Methods: GET, POST, QUERY
+Access-Control-Allow-Headers: Content-Type</pre>
+      </div>`
+    }`;
+}
+
+function renderQueryVerdict(outcome: Required<Outcome>, origin: string): string {
+  const { result, preflight } = outcome;
+  const preOk = preflightAllowsQuery(preflight, origin);
+  const actualOk =
+    !result.error &&
+    originAllowed(result.headers["access-control-allow-origin"], origin);
+  const unsupported = result.status === 405 || result.status === 501;
+
+  const [cls, icon, title, text] =
+    preOk && actualOk && !unsupported
+      ? ["status-success", "✓", "QUERY WORKS CROSS-ORIGIN", "A browser on this origin can send QUERY to this URL and read the response."]
+      : preOk && actualOk
+        ? ["status-warning", "~", "CORS OK — QUERY NOT SUPPORTED", `CORS allows it, but the server answered QUERY with HTTP ${result.status}.`]
+        : ["status-error", "✗", "BROWSERS WILL BLOCK QUERY", !preOk ? "The preflight fails, so the browser never sends the QUERY request." : "The preflight passes, but the QUERY response is missing a matching <code>access-control-allow-origin</code>."];
+
+  return `
+    <div class="status-box ${cls}">
+      <span class="status-icon">${icon}</span>
+      <div>
+        <strong>${title}</strong>
+        <p>${text}</p>
+      </div>
+    </div>`;
+}
+
+function renderResponse(title: string, result: TestResult): string {
+  if (result.error) {
+    return `
+      <h2 class="mt-6">${title}</h2>
+      <div class="status-box status-error">
+        <span class="status-icon">!</span>
+        <div>
+          <strong>REQUEST FAILED</strong>
+          <p>${encodeHTML(result.error)}</p>
+        </div>
+      </div>`;
+  }
+
+  return `
+      <h2 class="mt-6">${title} <span class="badge">HTTP ${result.status}</span></h2>
+      ${result.status >= 300 && result.status < 400 ? '<p class="legend">Redirect not followed — test the <code>location</code> target separately.</p>' : ""}
+      <div class="table-wrap">
+        <table class="headers-table">
+          <thead>
+            <tr>
+              <th>header</th>
+              <th>value</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${renderHeadersTable(result.headers)}
+          </tbody>
+        </table>
+      </div>
+      ${
+        Object.keys(result.headers).some((k) => CORS_HEADERS.includes(k as any))
+          ? '<p class="legend"><span class="cors-highlight-sample"></span> CORS-related headers highlighted</p>'
+          : '<p class="legend muted">No CORS headers found in response.</p>'
+      }`;
 }
 
 function renderCorsStatus(
@@ -154,12 +291,8 @@ function renderCorsStatus(
     </div>`;
 }
 
-function renderResults(
-  result: TestResult | null,
-  url: string,
-  origin: string,
-): string {
-  if (!result) {
+function renderResults(outcome: Outcome | null, origin: string): string {
+  if (!outcome) {
     return `
     <div class="info-section">
       <h2>// what is cors?</h2>
@@ -178,8 +311,30 @@ function renderResults(
       <p>
         Use <code>GET</code> for static assets (scripts, fonts, images).
         Use <code>OPTIONS</code> to test preflight requests for API calls.
+        Use <code>QUERY</code> (<a href="https://www.rfc-editor.org/rfc/rfc10008.html" target="_blank" rel="noopener noreferrer">RFC 10008</a>)
+        to check that browsers can send it: it runs the preflight and the request, as a browser would.
         Use the specific method matching your actual request for other cases.
       </p>
+    </div>`;
+  }
+
+  const { result, preflight } = outcome;
+
+  if (preflight) {
+    return `
+    <div class="results-section">
+      <h2>// query verdict</h2>
+      ${renderQueryVerdict({ result, preflight }, origin)}
+
+      <h2 class="mt-6">// step 1 — preflight</h2>
+      <p class="legend">OPTIONS with <code>access-control-request-method: QUERY</code> and <code>access-control-request-headers: content-type</code></p>
+      ${preflight.error ? "" : renderPreflightStatus(preflight, origin)}
+      ${renderResponse("// preflight response headers", preflight)}
+
+      <h2 class="mt-6">// step 2 — query request</h2>
+      <p class="legend">QUERY with <code>content-type: application/json</code> and body <code>{}</code></p>
+      ${result.error ? "" : renderCorsStatus(result.headers, origin)}
+      ${renderResponse("// query response headers", result)}
     </div>`;
   }
 
@@ -198,27 +353,7 @@ function renderResults(
     <div class="results-section">
       <h2>// cors status</h2>
       ${renderCorsStatus(result.headers, origin)}
-
-      <h2 class="mt-6">// response headers <span class="badge">HTTP ${result.status}</span></h2>
-      ${result.status >= 300 && result.status < 400 ? '<p class="legend">Redirect not followed — test the <code>location</code> target separately.</p>' : ""}
-      <div class="table-wrap">
-        <table class="headers-table">
-          <thead>
-            <tr>
-              <th>header</th>
-              <th>value</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${renderHeadersTable(result.headers)}
-          </tbody>
-        </table>
-      </div>
-      ${
-        Object.keys(result.headers).some((k) => CORS_HEADERS.includes(k as any))
-          ? '<p class="legend"><span class="cors-highlight-sample"></span> CORS-related headers highlighted</p>'
-          : '<p class="legend muted">No CORS headers found in response.</p>'
-      }
+      ${renderResponse("// response headers", result)}
     </div>`;
 }
 
@@ -226,7 +361,7 @@ function renderPage(
   url: string,
   origin: string,
   method: string,
-  result: TestResult | null,
+  outcome: Outcome | null,
   requestUrl: string,
   nonce: string,
 ): string {
@@ -532,6 +667,13 @@ function renderPage(
       border-radius: 2px;
     }
     .legend.muted { color: var(--error); }
+    .legend code, .status-box li code { font-size: 0.72rem; }
+
+    .checks { list-style: none; margin-top: 0.35rem; font-size: 0.78rem; }
+    .checks li { display: flex; gap: 0.5rem; }
+    .check-icon { font-weight: 700; flex-shrink: 0; }
+    .check-ok .check-icon { color: var(--success); }
+    .check-fail .check-icon { color: var(--error); }
 
     /* Info section */
     .info-section h2 { margin-top: 1.5rem; }
@@ -617,7 +759,7 @@ function renderPage(
           <select id="method" name="method" aria-label="HTTP method">
             ${VALID_METHODS.map((m) => `<option value="${m}"${m === method ? " selected" : ""}>${m}</option>`).join("")}
           </select>
-          <p class="hint">Use OPTIONS to test preflight requests</p>
+          <p class="hint">OPTIONS tests a preflight; QUERY runs preflight + request</p>
         </div>
       </div>
       <div class="form-footer">
@@ -633,7 +775,7 @@ function renderPage(
     </form>
   </div>
 
-  ${renderResults(result, url, origin)}
+  ${renderResults(outcome, origin)}
   </main>
 
   <footer>
@@ -767,12 +909,29 @@ export default {
 
     const nonce = crypto.randomUUID();
     // Browsers send a bare origin (scheme://host[:port]), never a path.
-    const result =
-      url !== ""
-        ? await fetchHeaders(url, method, new URL(origin).origin)
-        : null;
+    const testOrigin = new URL(origin).origin;
+    let outcome: Outcome | null = null;
+    if (url !== "" && method === "QUERY") {
+      // Both run even if the preflight fails, so the report shows each side.
+      const [preflight, result] = await Promise.all([
+        fetchHeaders(url, "OPTIONS", testOrigin, {
+          "Access-Control-Request-Method": "QUERY",
+          "Access-Control-Request-Headers": "content-type",
+        }),
+        fetchHeaders(
+          url,
+          "QUERY",
+          testOrigin,
+          { "Content-Type": "application/json" },
+          "{}",
+        ),
+      ]);
+      outcome = { result, preflight };
+    } else if (url !== "") {
+      outcome = { result: await fetchHeaders(url, method, testOrigin) };
+    }
 
-    const body = renderPage(url, origin, method, result, href, nonce);
+    const body = renderPage(url, origin, method, outcome, href, nonce);
 
     const csp = [
       `default-src 'none'`,
