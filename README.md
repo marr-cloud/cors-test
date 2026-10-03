@@ -34,7 +34,7 @@ Since this Worker fetches arbitrary user-supplied URLs and renders response data
 - Cross-origin isolation: `Cross-Origin-Opener-Policy: same-origin`, `Cross-Origin-Embedder-Policy: require-corp`, `Cross-Origin-Resource-Policy: same-origin`, `Origin-Agent-Cluster: ?1`.
 - `Permissions-Policy` denying every powerful feature the page doesn't use.
 - `Referrer-Policy: no-referrer`, `X-Content-Type-Options: nosniff`, `X-Permitted-Cross-Domain-Policies: none`.
-- `Cache-Control: no-store`; result pages also send `X-Robots-Tag: noindex, nofollow`.
+- `Cache-Control: no-store, no-transform` — `no-transform` keeps Cloudflare from injecting its Web Analytics and JS Detections scripts; result pages also send `X-Robots-Tag: noindex, nofollow`.
 
 **Outbound requests:**
 
