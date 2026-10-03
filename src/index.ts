@@ -45,6 +45,9 @@ function encodeHTML(s: string): string {
 const TEST_PATH = "/inspect";
 const MAX_URL_LENGTH = 2048;
 const FETCH_TIMEOUT_MS = 10_000;
+// Some servers (e.g. api.github.com) reject requests without a User-Agent,
+// which would be misreported as missing CORS headers.
+const USER_AGENT = "cors-test/1.0 (+https://cors.maurrod.dev)";
 
 function isValidUrl(str: string): boolean {
   if (str.length > MAX_URL_LENGTH) return false;
@@ -73,7 +76,7 @@ async function fetchHeaders(
     // URL actually requested, and preflights never follow redirects.
     const response = await fetch(url, {
       method,
-      headers: { Origin: origin, ...extraHeaders },
+      headers: { "User-Agent": USER_AGENT, Origin: origin, ...extraHeaders },
       body: body ?? null,
       redirect: "manual",
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
